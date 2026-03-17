@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "weather": {
+      "command": "/Users/yhajji/.local/bin/uv",
+      "args": [
+        "--directory",
+        "/Users/yhajji/Desktop/weather",
+        "run",
+        "weather.py"
+      ]
+    }
+  }
+}
