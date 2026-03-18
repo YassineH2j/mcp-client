@@ -4,9 +4,9 @@
       "command": "/Users/yhajji/.local/bin/uv",
       "args": [
         "--directory",
-        "/Users/yhajji/Desktop/weather",
+        "PATH TO YOUR MCP SERVER",
         "run",
-        "weather.py"
+        "tools.py"
       ]
     }
   }

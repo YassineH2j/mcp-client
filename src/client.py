@@ -1,29 +1,20 @@
 import os
-import json
 import asyncio
+import traceback
 from dotenv import load_dotenv
 from google import genai
 from google.genai import types
-from mcp import ClientSession, StdioServerParameters
+from mcp import ClientSession
 from mcp.client.stdio import stdio_client
+from utils import read_server_params, format_mcp_response, format_mcp_info
+from constants import SYSTEM_INSTRUCTION
+
 
 load_dotenv()
-
 gemini_key = os.getenv("GEMINI_API_KEY")
 
-with open("config.json", "r") as f:
-    config = json.load(f)
 
-server_config = config["mcpServers"]["weather"]
-
-server_params = StdioServerParameters(
-    command=server_config["command"],
-    args=server_config.get("args", []),
-    env=server_config.get("env"),
-)
-
-
-async def run(query):
+async def run(query, server_params):
     client = genai.Client(api_key=gemini_key)
 
     async with stdio_client(server_params) as (read, write):
@@ -55,14 +46,7 @@ async def run(query):
                 config=types.GenerateContentConfig(
                     temperature=0,
                     tools=tools,
-                    system_instruction=(
-                        "You are a helpful weather assistant. You have tools to fetch real-time "
-                        "weather, but they ONLY work for locations within the United States. "
-                        "If a user asks about an international location (like Tunis or Alger), "
-                        "do NOT use the tools. Instead, politely explain that you don't have "
-                        "real-time data for that region, and provide the typical seasonal climate "
-                        "and historical averages based on your general knowledge."
-                    ),
+                    system_instruction=SYSTEM_INSTRUCTION,
                 ),
             )
 
@@ -75,17 +59,7 @@ async def run(query):
                 )
 
                 # Parse and print formatted JSON result
-                print("--- Formatted Result ---")  # Add header for clarity
-                try:
-                    data = json.loads(result.content[0].text)
-                    print(json.dumps(data, indent=2))
-                    response_dict = data if isinstance(data, dict) else {"result": data}
-                except json.JSONDecodeError:
-                    print("MCP server returned non-JSON response.")
-                    response_dict = {"result": result.content[0].text}
-                except (IndexError, AttributeError):
-                    print("Unexpected result structure from MCP server.")
-                    response_dict = {"result": str(result)}
+                response_dict = format_mcp_response(result)
 
                 # Send the tool response back to Gemini to generate natural language
                 final_response = await client.aio.models.generate_content(
@@ -105,35 +79,25 @@ async def run(query):
                         ),
                     ],
                 )
-
-                mcp_info = (
-                    f"--- MCP Tool Execution ---\n"
-                    f"Tool Name: {function_call.name}\n"
-                    f"Input: {json.dumps(dict(function_call.args), indent=2)}\n"
-                    f"Output: {json.dumps(response_dict, indent=2)}\n"
-                    f"--------------------------\n"
-                )
+                mcp_info = format_mcp_info(function_call, response_dict)
                 return f"{mcp_info}\n{final_response.text}"
             else:
-                mcp_info = "--- No MCP Tool Used ---\n\n"
+                mcp_info = format_mcp_info(None, None)
                 if response.text:
                     return f"{mcp_info}{response.text}"
                 return f"{mcp_info}No response generated."
 
 
 while True:
+    server_params = read_server_params()
+
     try:
         query = input("\nQuery: ").strip()
-
         if query.lower() == "quit":
             break
-
-        response = asyncio.run(run(query))
-
+        response = asyncio.run(run(query, server_params))
         print("\n" + response)
 
     except Exception as e:
-        import traceback
-
         print("\nAn error occurred:")
         traceback.print_exception(type(e), e, getattr(e, "__traceback__", None))
